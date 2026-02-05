@@ -1,0 +1,10 @@
+{
+  "models": {
+    "default": "qwen3-flash",
+    "shell": "qwen3-coder-flash-2025-07-28",
+    "ask": "qwen3-flash"
+  },
+  "defaults": {
+    "temperature": 0.1
+  }
+}
