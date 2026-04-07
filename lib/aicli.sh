@@ -30,14 +30,24 @@ _aicli_trim() {
   printf '%s' "$s"
 }
 
+_aicli_json_compact() {
+  local raw="$1"
+  if [[ -z "$raw" ]]; then
+    return 1
+  fi
+  printf '%s' "$raw" | jq -c . 2>/dev/null
+}
+
 aicli_api_key() {
-  local key="${OPENAI_API_KEY:-}"
+  local key
+  key="$(_aicli_cfg_get ".openai.apiKey")"
   key="$(_aicli_trim "$key")"
   printf '%s' "$key"
 }
 
 aicli_base_url() {
-  local base="${OPENAI_BASE_URL:-}"
+  local base
+  base="$(_aicli_cfg_get ".openai.baseUrl")"
   base="$(_aicli_trim "$base")"
   if [[ -z "$base" ]]; then
     base="https://api.openai.com/v1"
@@ -72,21 +82,29 @@ aicli_temperature() {
   printf '%s' "$t"
 }
 
-aicli_chat() {
+aicli_chat_messages() {
   _aicli_check_deps
 
   local model="$1"
-  local system_prompt="$2"
-  local user_prompt="$3"
-  local temperature="${4:-}"
+  local messages_json="$2"
+  local temperature="${3:-}"
 
   if [[ -z "$temperature" ]]; then
     temperature="$(aicli_temperature)"
   fi
 
+  local messages_compact
+  messages_compact="$(_aicli_json_compact "$messages_json")" || _aicli_die "❌ 错误: 传入的 messages 不是合法 JSON"
+
+  local temperature_json
+  temperature_json="$(printf '%s' "$temperature" | jq -R 'fromjson?' 2>/dev/null)"
+  if [[ -z "$temperature_json" || "$temperature_json" == "null" ]]; then
+    temperature_json="0.1"
+  fi
+
   local api_key
   api_key="$(aicli_api_key)"
-  [[ -n "$api_key" ]] || _aicli_die "❌ 错误: 未设置 OPENAI_API_KEY"
+  [[ -n "$api_key" ]] || _aicli_die "❌ 错误: 未在配置文件设置 openai.apiKey (${AICLI_CONFIG_FILE})"
 
   local base url
   base="$(aicli_base_url)"
@@ -95,15 +113,11 @@ aicli_chat() {
   local payload
   payload=$(jq -n \
     --arg model "$model" \
-    --arg system "$system_prompt" \
-    --arg user "$user_prompt" \
-    --argjson temperature "$temperature" \
+    --argjson messages "$messages_compact" \
+    --argjson temperature "$temperature_json" \
     '{
       model: $model,
-      messages: [
-        {role: "system", content: $system},
-        {role: "user", content: $user}
-      ],
+      messages: $messages,
       temperature: $temperature
     }')
 
@@ -124,6 +138,14 @@ aicli_chat() {
     return 1
   fi
 
+  local api_error
+  api_error=$(printf '%s' "$body" | jq -r '.error.message // empty' 2>/dev/null || true)
+  if [[ -n "$api_error" ]]; then
+    _aicli_err "❌ API 调用失败"
+    _aicli_err "$body"
+    return 1
+  fi
+
   local content
   content=$(printf '%s' "$body" | jq -r '.choices[0].message.content // empty' 2>/dev/null || true)
   if [[ -z "$content" ]]; then
@@ -133,4 +155,23 @@ aicli_chat() {
   fi
 
   printf '%s' "$content"
+}
+
+aicli_chat() {
+  _aicli_check_deps
+  local model="$1"
+  local system_prompt="$2"
+  local user_prompt="$3"
+  local temperature="${4:-}"
+
+  local messages_json
+  messages_json=$(jq -cn \
+    --arg system "$system_prompt" \
+    --arg user "$user_prompt" \
+    '[
+      {role: "system", content: $system},
+      {role: "user", content: $user}
+    ]')
+
+  aicli_chat_messages "$model" "$messages_json" "$temperature"
 }

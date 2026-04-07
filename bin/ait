@@ -1,0 +1,11 @@
+#!/bin/zsh
+
+SCRIPT_DIR="${0:A:h}"
+if [[ -x "${SCRIPT_DIR}/aitrans" ]]; then
+  exec "${SCRIPT_DIR}/aitrans" "$@"
+elif [[ -x "${HOME}/.local/bin/aitrans" ]]; then
+  exec "${HOME}/.local/bin/aitrans" "$@"
+else
+  echo "❌ 找不到 aitrans（请重新运行安装脚本 ./install.sh）" 1>&2
+  exit 1
+fi

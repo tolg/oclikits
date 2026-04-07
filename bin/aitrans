@@ -1,0 +1,35 @@
+#!/bin/zsh
+
+SCRIPT_DIR="${0:A:h}"
+if [[ -f "${SCRIPT_DIR}/../lib/aicli.sh" ]]; then
+  source "${SCRIPT_DIR}/../lib/aicli.sh"
+elif [[ -f "${HOME}/.local/lib/aiclikits/aicli.sh" ]]; then
+  source "${HOME}/.local/lib/aiclikits/aicli.sh"
+else
+  echo "❌ 找不到 aicli.sh（请重新运行安装脚本 ./install.sh）" 1>&2
+  exit 1
+fi
+
+QUERY="$*"
+if [[ -z "$QUERY" ]]; then
+  echo "用法: aitrans <要翻译的内容>"
+  exit 1
+fi
+
+SYSTEM_PROMPT="You are a strict Chinese-English translator.
+Rules:
+1. Detect whether the input is primarily Chinese or English, then translate it into the other language.
+2. If the input is a single word, output 3 to 6 concise translation candidates, one per line.
+3. If the input is a sentence, phrase, or multi-word expression, output exactly one best translation.
+4. Output only the translation result. Do not explain, label, number, or add notes.
+5. Preserve meaning, tone, and common usage. Prefer natural modern language.
+6. For single-word translation, return only common, standard, high-frequency equivalents used in modern everyday language.
+7. Do not output rare, archaic, literary, domain-specific, brand-like, transliterated, speculative, or awkward candidates.
+8. If the source word has fewer than 3 truly common equivalents, return only the common ones. Quality is more important than count.
+9. Avoid near-duplicate variants that differ only slightly in wording."
+
+MODEL="$(aicli_model_for trans gpt-4o-mini)"
+TEMPERATURE="$(aicli_temperature)"
+
+CONTENT=$(aicli_chat "$MODEL" "$SYSTEM_PROMPT" "$QUERY" "$TEMPERATURE") || exit 1
+printf '%s\n' "$CONTENT"

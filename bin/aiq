@@ -1,0 +1,75 @@
+#!/bin/zsh
+
+SCRIPT_DIR="${0:A:h}"
+if [[ -f "${SCRIPT_DIR}/../lib/aicli.sh" ]]; then
+  source "${SCRIPT_DIR}/../lib/aicli.sh"
+elif [[ -f "${HOME}/.local/lib/aiclikits/aicli.sh" ]]; then
+  source "${HOME}/.local/lib/aiclikits/aicli.sh"
+else
+  echo "❌ 找不到 aicli.sh（请重新运行安装脚本 ./install.sh）" 1>&2
+  exit 1
+fi
+
+_aicli_check_deps
+
+CONTEXT_FILE="${HOME}/.config/aiclikits/aiq_context.json"
+MAX_HISTORY=20 # Max messages to keep (10 turns)
+
+# Parse options
+zparseopts -D -E -A opts n -new
+
+if [[ -n "${opts[-n]}" || -n "${opts[--new]}" ]]; then
+  rm -f "$CONTEXT_FILE"
+  echo "🧹 记忆已清除"
+fi
+
+QUERY="$*"
+if [[ -z "$QUERY" ]]; then
+  echo "用法: aiq [选项] <问题>"
+  echo "  -n, --new   清除上下文记忆并开始新对话"
+  exit 1
+fi
+
+SYSTEM_PROMPT="用 1-3 句话简洁回答以下问题，不要冗余，直接给结论："
+
+# Create config dir if needed
+mkdir -p "$(dirname "$CONTEXT_FILE")"
+
+# Load history
+HISTORY_JSON="[]"
+if [[ -f "$CONTEXT_FILE" ]]; then
+  HISTORY_JSON=$(jq -c . "$CONTEXT_FILE" 2>/dev/null || echo "[]")
+fi
+
+# Prepare User Message
+NEW_MSG_JSON=$(jq -cn --arg content "$QUERY" '{role: "user", content: $content}')
+
+# Construct Payload: System + History + New Message
+MESSAGES_JSON=$(jq -cn \
+  --arg system "$SYSTEM_PROMPT" \
+  --argjson history "$HISTORY_JSON" \
+  --argjson new_msg "$NEW_MSG_JSON" \
+  '[ {role: "system", content: $system} ] + $history + [$new_msg]')
+
+MODEL="$(aicli_model_for ask gpt-4o-mini)"
+TEMPERATURE="$(aicli_temperature)"
+
+# Call API
+CONTENT=$(aicli_chat_messages "$MODEL" "$MESSAGES_JSON" "$TEMPERATURE") || exit 1
+
+# Process Answer (Keep it short for display)
+ANSWER=$(printf '%s' "$CONTENT" | awk 'NF' | head -n 3)
+printf '%s\n' "$ANSWER"
+
+# Update History
+NEW_ASSISTANT_JSON=$(jq -cn --arg content "$ANSWER" '{role: "assistant", content: $content}')
+
+# Append and Prune (Compress) History
+# We only store User/Assistant pairs in history. System prompt is added dynamically.
+HISTORY_JSON=$(printf '%s' "$HISTORY_JSON" | jq -c \
+  --argjson user_msg "$NEW_MSG_JSON" \
+  --argjson asst_msg "$NEW_ASSISTANT_JSON" \
+  --argjson max "$MAX_HISTORY" \
+  '. + [$user_msg, $asst_msg] | if length > ($max|tonumber) then .[-($max|tonumber):] else . end')
+
+echo "$HISTORY_JSON" > "$CONTEXT_FILE"
