@@ -26,7 +26,10 @@ Rules:
 6. For single-word translation, return only common, standard, high-frequency equivalents used in modern everyday language.
 7. Do not output rare, archaic, literary, domain-specific, brand-like, transliterated, speculative, or awkward candidates.
 8. If the source word has fewer than 3 truly common equivalents, return only the common ones. Quality is more important than count.
-9. Avoid near-duplicate variants that differ only slightly in wording."
+9. Avoid near-duplicate variants that differ only slightly in wording.
+10. If the input is an English special term, proper noun, style name, product name, or community term with no direct standard Chinese translation, output concise Chinese explanations instead of English paraphrases.
+11. In that case, every output line must be Chinese, except the original term itself when it is necessary to identify the subject.
+12. Never respond with an English definition when the target language should be Chinese."
 
 MODEL="$(aicli_model_for trans gpt-4o-mini)"
 TEMPERATURE="$(aicli_temperature)"
