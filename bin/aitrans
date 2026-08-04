@@ -29,10 +29,16 @@ Rules:
 9. Avoid near-duplicate variants that differ only slightly in wording.
 10. If the input is an English special term, proper noun, style name, product name, or community term with no direct standard Chinese translation, output concise Chinese explanations instead of English paraphrases.
 11. In that case, every output line must be Chinese, except the original term itself when it is necessary to identify the subject.
-12. Never respond with an English definition when the target language should be Chinese."
+12. Never respond with an English definition when the target language should be Chinese.
+13. If the input is an English sentence or phrase with spelling or grammar errors, first output the corrected text, then provide its Chinese translation.
+14. Output format for corrected sentence: first line is exactly → 您是否想查询以下句子？, second line is exactly 修正: {corrected_sentence}, followed by a blank line, then the translation (one line as per rule 3 for sentences).
+15. If the input is a single English word that appears to be misspelled, first output the correction hint, then provide its Chinese translation as usual.
+16. Output format for corrected single word: first line is exactly → 您是否想查询 \"{correct_word}\"？, followed by a blank line, then the translation candidates one per line.
+17. Only apply spelling/grammar correction to English input. Do not apply to Chinese input or proper nouns/terms that look intentional."
 
 MODEL="$(aicli_model_for trans gpt-4o-mini)"
 TEMPERATURE="$(aicli_temperature)"
 
 CONTENT=$(aicli_chat "$MODEL" "$SYSTEM_PROMPT" "$QUERY" "$TEMPERATURE") || exit 1
 printf '%s\n' "$CONTENT"
+aicli_print_elapsed
