@@ -12,18 +12,31 @@ pub async fn execute(cfg: &Config, new: bool, query_parts: Vec<String>) -> Resul
 
     if new {
         history_mgr.clear();
-        println!("🧹 记忆已清除");
+        if crate::i18n::is_zh() {
+            println!("🧹 记忆已清除");
+        } else {
+            println!("🧹 Memory cleared");
+        }
     }
 
     let query = query_parts.join(" ");
     let query = query.trim();
     if query.is_empty() {
-        println!("用法: aiq [选项] <问题>");
-        println!("  -n, --new   清除上下文记忆并开始新对话");
+        if crate::i18n::is_zh() {
+            println!("用法: aiq [选项] <问题>");
+            println!("  -n, --new   清除上下文记忆并开始新对话");
+        } else {
+            println!("Usage: aiq [options] <question>");
+            println!("  -n, --new   Clear context memory and start a new conversation");
+        }
         return Ok(());
     }
 
-    let system_prompt = "用 1-3 句话简洁回答以下问题，不要冗余，直接给结论：";
+    let system_prompt = if crate::i18n::is_zh() {
+        "用 1-3 句话简洁回答以下问题，不要冗余，直接给结论："
+    } else {
+        "Answer the following question concisely in 1-3 sentences without redundancy, give the conclusion directly:"
+    };
     let history = history_mgr.load();
 
     let mut messages = vec![ChatMessage::system(system_prompt)];

@@ -84,10 +84,17 @@ impl Config {
         let path_str = Self::config_file_path()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|| "~/.config/aiclikits/config.json".to_string());
-        Err(AidError::Config(format!(
-            "未在配置文件设置 openai.apiKey ({}) 或环境变量 OPENAI_API_KEY",
-            path_str
-        )))
+        if crate::i18n::is_zh() {
+            Err(AidError::Config(format!(
+                "未在配置文件设置 openai.apiKey ({}) 或环境变量 OPENAI_API_KEY",
+                path_str
+            )))
+        } else {
+            Err(AidError::Config(format!(
+                "openai.apiKey is not set in config file ({}) nor OPENAI_API_KEY environment variable",
+                path_str
+            )))
+        }
     }
 
     pub fn base_url(&self) -> String {

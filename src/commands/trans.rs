@@ -10,11 +10,30 @@ pub async fn execute(cfg: &Config, query_parts: Vec<String>) -> Result<()> {
     let query = query_parts.join(" ");
     let query = query.trim();
     if query.is_empty() {
-        println!("用法: aitrans <要翻译的内容>");
+        if crate::i18n::is_zh() {
+            println!("用法: aitrans <要翻译的内容>");
+        } else {
+            println!("Usage: aitrans <text to translate>");
+        }
         return Ok(());
     }
 
-    let system_prompt = "You are a strict Chinese-English translator.\n\
+    let (rule14_header, rule14_fix, rule16_header) = if crate::i18n::is_zh() {
+        (
+            "您是否想查询以下句子？",
+            "修正:",
+            "您是否想查询 \\\"{correct_word}\\\"？",
+        )
+    } else {
+        (
+            "Did you mean the following sentence?",
+            "Correction:",
+            "Did you mean \\\"{correct_word}\\\"?",
+        )
+    };
+
+    let system_prompt = format!(
+        "You are a strict Chinese-English translator.\n\
 Rules:\n\
 1. Detect whether the input is primarily Chinese or English, then translate it into the other language.\n\
 2. If the input is a single word, output 3 to 6 concise translation candidates, one per line.\n\
@@ -29,17 +48,19 @@ Rules:\n\
 11. In that case, every output line must be Chinese, except the original term itself when it is necessary to identify the subject.\n\
 12. Never respond with an English definition when the target language should be Chinese.\n\
 13. If the input is an English sentence or phrase with spelling or grammar errors, first output the corrected text, then provide its Chinese translation.\n\
-14. Output format for corrected sentence: first line is exactly → 您是否想查询以下句子？, second line is exactly 修正: {corrected_sentence}, followed by a blank line, then the translation (one line as per rule 3 for sentences).\n\
+14. Output format for corrected sentence: first line is exactly → {}, second line is exactly {} {{corrected_sentence}}, followed by a blank line, then the translation (one line as per rule 3 for sentences).\n\
 15. If the input is a single English word that appears to be misspelled, first output the correction hint, then provide its Chinese translation as usual.\n\
-16. Output format for corrected single word: first line is exactly → 您是否想查询 \"{correct_word}\"？, followed by a blank line, then the translation candidates one per line.\n\
-17. Only apply spelling/grammar correction to English input. Do not apply to Chinese input or proper nouns/terms that look intentional.";
+16. Output format for corrected single word: first line is exactly → {}, followed by a blank line, then the translation candidates one per line.\n\
+17. Only apply spelling/grammar correction to English input. Do not apply to Chinese input or proper nouns/terms that look intentional.",
+        rule14_header, rule14_fix, rule16_header
+    );
 
     let client = ApiClient::new(cfg)?;
     let model = cfg.model_for("trans", "qwen3-flash");
     let temperature = cfg.temperature();
 
     let messages = vec![
-        ChatMessage::system(system_prompt),
+        ChatMessage::system(&system_prompt),
         ChatMessage::user(query),
     ];
 

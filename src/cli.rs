@@ -9,30 +9,30 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// 简洁问答 (保持历史上下文)
+    /// Concise Q&A (maintains conversation context)
     #[command(name = "q", alias = "ask")]
     Q {
-        /// 清除上下文记忆并开始新对话
+        /// Clear context memory and start a new conversation
         #[arg(short = 'n', long = "new")]
         new: bool,
 
-        /// 问题内容
+        /// Question content
         #[arg(required = true)]
         query: Vec<String>,
     },
 
-    /// 自然语言指令转 Shell 并交互确认
+    /// Natural language to Shell command with confirmation
     #[command(name = "shell")]
     Shell {
-        /// 指令描述
+        /// Command description
         #[arg(required = true)]
         query: Vec<String>,
     },
 
-    /// 中英翻译与错别字纠正
+    /// Translation between Chinese & English and spell check
     #[command(name = "trans", alias = "ait")]
     Trans {
-        /// 翻译或纠错文本
+        /// Text to translate or correct
         #[arg(required = true)]
         query: Vec<String>,
     },

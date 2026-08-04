@@ -16,6 +16,10 @@ impl CommandTimer {
     }
 
     pub fn print_elapsed(&self) {
-        println!("(用时 {:.2}s)", self.elapsed_sec());
+        if crate::i18n::is_zh() {
+            println!("(用时 {:.2}s)", self.elapsed_sec());
+        } else {
+            println!("(Elapsed {:.2}s)", self.elapsed_sec());
+        }
     }
 }

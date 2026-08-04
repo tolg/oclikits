@@ -15,7 +15,11 @@ pub async fn execute(cfg: &Config, query_parts: Vec<String>) -> Result<()> {
     let query = query_parts.join(" ");
     let query = query.trim();
     if query.is_empty() {
-        println!("用法: aish <自然语言指令>");
+        if crate::i18n::is_zh() {
+            println!("用法: aish <自然语言指令>");
+        } else {
+            println!("Usage: aish <natural language command>");
+        }
         return Ok(());
     }
 
@@ -43,7 +47,12 @@ pub async fn execute(cfg: &Config, query_parts: Vec<String>) -> Result<()> {
         os_output, shell_name
     );
 
-    let pb = start_spinner("🤖 Thinking...");
+    let pb_msg = if crate::i18n::is_zh() {
+        "🤖 思考中..."
+    } else {
+        "🤖 Thinking..."
+    };
+    let pb = start_spinner(pb_msg);
     let client = ApiClient::new(cfg)?;
     let model = cfg.model_for("shell", "qwen3-coder-flash-2025-07-28");
     let temperature = cfg.temperature();
@@ -58,14 +67,23 @@ pub async fn execute(cfg: &Config, query_parts: Vec<String>) -> Result<()> {
     let cmd = clean_command_output(&content);
 
     if cmd.is_empty() {
-        return Err(AidError::Config("解析为空".to_string()));
+        let err_msg = if crate::i18n::is_zh() {
+            "解析为空"
+        } else {
+            "Empty response"
+        };
+        return Err(AidError::Config(err_msg.to_string()));
     }
 
     print_command_box(&cmd);
     timer.print_elapsed();
     println!();
 
-    print!("执行? [Y/n] ");
+    if crate::i18n::is_zh() {
+        print!("执行? [Y/n] ");
+    } else {
+        print!("Execute? [Y/n] ");
+    }
     io::stdout().flush().ok();
 
     let confirm = read_confirmation()?;
@@ -77,11 +95,19 @@ pub async fn execute(cfg: &Config, query_parts: Vec<String>) -> Result<()> {
             .status()?;
         if !status.success() {
             if let Some(code) = status.code() {
-                eprintln!("命令退出码: {}", code);
+                if crate::i18n::is_zh() {
+                    eprintln!("命令退出码: {}", code);
+                } else {
+                    eprintln!("Command exit code: {}", code);
+                }
             }
         }
     } else {
-        println!("\n已取消。");
+        if crate::i18n::is_zh() {
+            println!("\n已取消。");
+        } else {
+            println!("\nCancelled.");
+        }
     }
 
     Ok(())
