@@ -20,21 +20,21 @@ echo "📦 正在编译 Rust 发布版本..."
 cd "$ROOT_DIR"
 cargo build --release
 
-BUILD_BIN="${ROOT_DIR}/target/release/aid"
+BUILD_BIN="${ROOT_DIR}/target/release/aiclik"
 
 if [[ ! -f "$BUILD_BIN" ]]; then
-  echo "❌ 编译失败，未找二进制文件: $BUILD_BIN"
+  echo "❌ 编译失败，未找到二进制文件: $BUILD_BIN"
   exit 1
 fi
 
-install -m 0755 "$BUILD_BIN" "${TARGET_BIN_DIR}/aid"
+install -m 0755 "$BUILD_BIN" "${TARGET_BIN_DIR}/aiclik"
 
 cd "$TARGET_BIN_DIR"
-ln -sf aid aiq
-ln -sf aid aiask
-ln -sf aid aish
-ln -sf aid aitrans
-ln -sf aid ait
+ln -sf aiclik aiq
+ln -sf aiclik aiask
+ln -sf aiclik aish
+ln -sf aiclik aitrans
+ln -sf aiclik ait
 
 mkdir -p "$CONFIG_DIR"
 if [[ ! -f "$CONFIG_FILE" ]]; then
@@ -45,7 +45,7 @@ else
 fi
 
 echo ""
-echo "✅ Rust aid 安装完成！已安装到 ${TARGET_BIN_DIR}/aid 及别名符号链接"
+echo "✅ Rust aiclik 安装完成！已安装到 ${TARGET_BIN_DIR}/aiclik 及别名符号链接"
 echo ""
 echo "配置文件位置："
 echo "  $CONFIG_FILE"

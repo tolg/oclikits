@@ -3,7 +3,7 @@
 version = 4
 
 [[package]]
-name = "aid"
+name = "aiclik"
 version = "0.1.0"
 dependencies = [
  "clap",

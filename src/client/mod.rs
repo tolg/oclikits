@@ -16,7 +16,10 @@ impl ApiClient {
     pub fn new(cfg: &Config) -> Result<Self> {
         let api_key = cfg.api_key()?;
         let base_url = cfg.base_url();
-        let client = Client::builder().build()?;
+        let user_agent = format!("aiclik/{} ({}; {})", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH);
+        let client = Client::builder()
+            .user_agent(user_agent)
+            .build()?;
 
         Ok(Self {
             client,
