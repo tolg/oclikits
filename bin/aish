@@ -51,6 +51,8 @@ echo -ne "\033[2K\r"
 echo "----------------------------------------"
 echo -e "\033[1;32m$CMD\033[0m"
 echo "----------------------------------------"
+aicli_print_elapsed
+echo ""
 
 echo -n "执行? [Y/n] "
 read -k 1 ACTION

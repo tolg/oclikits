@@ -13,7 +13,7 @@ fi
 _aicli_check_deps
 
 CONTEXT_FILE="${HOME}/.config/aiclikits/aiq_context.json"
-MAX_HISTORY=20 # Max messages to keep (10 turns)
+MAX_HISTORY=100 # Max messages to keep
 
 # Parse options
 zparseopts -D -E -A opts n -new
@@ -35,10 +35,16 @@ SYSTEM_PROMPT="用 1-3 句话简洁回答以下问题，不要冗余，直接给
 # Create config dir if needed
 mkdir -p "$(dirname "$CONTEXT_FILE")"
 
-# Load history
+# Load history (丢弃超过 28 小时的旧记忆)
 HISTORY_JSON="[]"
 if [[ -f "$CONTEXT_FILE" ]]; then
-  HISTORY_JSON=$(jq -c . "$CONTEXT_FILE" 2>/dev/null || echo "[]")
+  NOW=$(date +%s)
+  MTIME=$(stat -f %m "$CONTEXT_FILE" 2>/dev/null || echo "0")
+  if (( NOW - MTIME > 100800 )); then
+    : # 会话已过期，不使用历史
+  else
+    HISTORY_JSON=$(jq -c . "$CONTEXT_FILE" 2>/dev/null || echo "[]")
+  fi
 fi
 
 # Prepare User Message
@@ -60,6 +66,7 @@ CONTENT=$(aicli_chat_messages "$MODEL" "$MESSAGES_JSON" "$TEMPERATURE") || exit 
 # Process Answer (Keep it short for display)
 ANSWER=$(printf '%s' "$CONTENT" | awk 'NF' | head -n 3)
 printf '%s\n' "$ANSWER"
+aicli_print_elapsed
 
 # Update History
 NEW_ASSISTANT_JSON=$(jq -cn --arg content "$ANSWER" '{role: "assistant", content: $content}')

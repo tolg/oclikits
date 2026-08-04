@@ -1,7 +1,33 @@
 #!/bin/zsh
 
+zmodload zsh/datetime 2>/dev/null || true
+
 AICLI_CONFIG_DIR="${HOME}/.config/aiclikits"
 AICLI_CONFIG_FILE="${AICLI_CONFIG_DIR}/config.json"
+
+_AICLI_START_TIME=""
+
+aicli_start_timer() {
+  _AICLI_START_TIME="${EPOCHREALTIME:-}"
+}
+
+aicli_elapsed_sec() {
+  if [[ -n "$_AICLI_START_TIME" && -n "$EPOCHREALTIME" ]]; then
+    local elapsed=$(( EPOCHREALTIME - _AICLI_START_TIME ))
+    printf "%.2fs" "$elapsed"
+  else
+    printf "0.00s"
+  fi
+}
+
+aicli_print_elapsed() {
+  local elapsed
+  elapsed="$(aicli_elapsed_sec)"
+  echo "(用时 ${elapsed})"
+}
+
+aicli_start_timer
+
 
 _aicli_err() {
   echo "$*" 1>&2
