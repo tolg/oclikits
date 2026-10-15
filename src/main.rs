@@ -93,8 +93,8 @@ async fn run(exec_name: &str, args: &[String]) -> Result<()> {
                         println!(
                             "{} {}",
                             i18n::tr(
-                                "已创建模型配置模板，请填写 model：",
-                                "Created model config template, fill in model:"
+                                "已创建模型配置模板（model 可留空，留空则使用 OpenCode 默认模型）：",
+                                "Created model config template (model may be left empty to use OpenCode's default):"
                             ),
                             path.display()
                         );

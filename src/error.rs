@@ -8,8 +8,6 @@ pub enum OcError {
     Message(String),
     /// The `opencode` executable could not be found.
     OpencodeNotFound,
-    /// No model was configured on the command line or in the config file.
-    ModelNotConfigured,
     /// The OpenCode session referenced by the local mapping no longer exists.
     SessionNotFound(String),
     /// The command was interrupted (SIGINT / SIGTERM).
@@ -54,18 +52,6 @@ impl fmt::Display for OcError {
                     "opencode command not found. Install OpenCode and make sure it is in PATH."
                 )
             ),
-            OcError::ModelNotConfigured => {
-                let path = crate::config::config_path();
-                let zh = format!(
-                    "尚未配置 OpenCode 模型。请在配置文件中设置：\n\n  {}\n\n至少填写 \"model\"（全局默认，provider/model 格式）；\n也可以用 \"commands.q\" / \"commands.sq\" / \"commands.trans\" / \"commands.shell\" / \"commands.commit\" 为单个命令配置专用模型。\n\n也可以用 -m/--model 临时指定模型。",
-                    path.display()
-                );
-                let en = format!(
-                    "No OpenCode model configured. Set it in:\n\n  {}\n\nAt minimum fill in \"model\" (global default, provider/model format).\nYou can also set \"commands.q\" / \"commands.sq\" / \"commands.trans\" / \"commands.shell\" / \"commands.commit\" for per-command models.\n\nYou can also pass -m/--model for a one-off override.",
-                    path.display()
-                );
-                write!(f, "{}", tr(&zh, &en))
-            }
             OcError::SessionNotFound(id) => {
                 let zh = format!("OpenCode 会话不存在：{}", id);
                 let en = format!("OpenCode session not found: {}", id);

@@ -8,7 +8,7 @@ A lightweight command-line toolkit built on [OpenCode](https://opencode.ai). It 
 
 - It does not implement its own LLM client, and does not manage API keys or base URLs.
 - It does not store chat history itself. Messages, tool calls and context compaction are all handled by OpenCode.
-- Models are not hard-coded. A global default and per-command models are set in `~/.config/oclikits/config.jsonc`.
+- Models are not hard-coded. An optional global default and per-command models are set in `~/.config/oclikits/config.jsonc`; when unset, OpenCode's own default model is reused.
 - It only maintains a mapping from logical context to OpenCode `sessionID`.
 - Tasks run through `opencode run`, and `oclikits` manages the session lifecycle.
 
@@ -30,7 +30,7 @@ ocq ocsq oct ocsh occmt octrans
 aiq aiask aish ait aitrans   # legacy aliases, kept for compatibility
 ```
 
-The installer also creates a model config template at `~/.config/oclikits/config.jsonc` (an existing file is never overwritten). Fill in its `model` field after installation. See the [Models](#models) section below.
+The installer also creates a model config template at `~/.config/oclikits/config.jsonc` (an existing file is never overwritten). You may optionally fill in its `model` field; leave it empty to reuse OpenCode's own default model. See the [Models](#models) section below.
 
 Make sure `~/.local/bin` is in your `PATH`.
 
@@ -136,7 +136,8 @@ Models are configured in a file rather than in the code:
 
 ```jsonc
 {
-  // Global default model: used by all commands that have no dedicated model (required).
+  // Global default model: used by all commands that have no dedicated model (optional).
+  // Leave empty to pass no --model and let OpenCode use its own default instead.
   "model": "opencode-go/mimo-v2.6-flash",
 
   // Per-command models (optional). Leave empty to fall back to "model" above.
@@ -160,7 +161,7 @@ Models are configured in a file rather than in the code:
 ocq -m opencode-go/deepseek-v4.1-flash "..."
 ```
 
-- Resolution priority: `-m/--model` > `commands.<command>` > `model` > error prompting you to fix the config.
+- Resolution priority: `-m/--model` > `commands.<command>` > `model` > OpenCode's own default model. When oclikits has no model configured, it no longer errors: it passes no `--model` and lets OpenCode resolve it from its own precedence (global/project config, or the session's already-selected model).
 
 ## Session storage
 

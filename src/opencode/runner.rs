@@ -12,7 +12,9 @@ use crate::opencode::session::delete_opencode_session;
 use crate::ui::{self, preview::Preview};
 
 pub struct RunOptions {
-    pub model: String,
+    /// Explicit model in `provider/model` format. `None` lets `opencode run`
+    /// use its own default model instead of passing `--model`.
+    pub model: Option<String>,
     pub session_id: Option<String>,
     pub directory: Option<PathBuf>,
     pub prompt: String,
@@ -44,11 +46,10 @@ impl Runner {
 
     pub async fn run(&self, options: &RunOptions) -> Result<RunResult> {
         let mut cmd = Command::new("opencode");
-        cmd.arg("run")
-            .arg("--format")
-            .arg("json")
-            .arg("--model")
-            .arg(&options.model);
+        cmd.arg("run").arg("--format").arg("json");
+        if let Some(model) = &options.model {
+            cmd.arg("--model").arg(model);
+        }
         if let Some(session_id) = &options.session_id {
             cmd.arg("--session").arg(session_id);
         }
@@ -69,6 +70,11 @@ impl Runner {
                 .as_deref()
                 .map(|dir| dir.display().to_string())
                 .unwrap_or_else(|| ".".to_string());
+            let model = options
+                .model
+                .as_deref()
+                .map(|model| format!(" --model {}", model))
+                .unwrap_or_default();
             let session = options
                 .session_id
                 .as_deref()
@@ -76,8 +82,8 @@ impl Runner {
                 .unwrap_or_default();
             eprintln!("[debug] cwd: {}", dir);
             eprintln!(
-                "[debug] opencode run --format json --model {}{} <prompt>",
-                options.model, session
+                "[debug] opencode run --format json{}{} <prompt>",
+                model, session
             );
             eprintln!("[debug] prompt:\n{}", options.prompt);
         }
@@ -361,7 +367,7 @@ mod tests {
         let runner = Runner::new(true);
         let first = runner
             .run(&RunOptions {
-                model: TEST_MODEL.to_string(),
+                model: Some(TEST_MODEL.to_string()),
                 session_id: None,
                 directory: None,
                 prompt: "只回答 hello".to_string(),
@@ -375,7 +381,7 @@ mod tests {
 
         let second = runner
             .run(&RunOptions {
-                model: TEST_MODEL.to_string(),
+                model: Some(TEST_MODEL.to_string()),
                 session_id: Some(session_id.clone()),
                 directory: None,
                 prompt: "你刚才回答了什么？只回答那个单词".to_string(),

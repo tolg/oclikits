@@ -8,7 +8,7 @@
 
 - 不再实现自己的 LLM Client，不管理 API Key / Base URL；
 - 不自己保存聊天历史，消息、工具调用与上下文压缩全部由 OpenCode 负责；
-- 模型不再写死在代码里，通过 `~/.config/oclikits/config.jsonc` 配置全局默认值与各命令的专用模型；
+- 模型不再写死在代码里，可选通过 `~/.config/oclikits/config.jsonc` 配置全局默认值与各命令的专用模型；不配置时复用 OpenCode 自身的默认模型；
 - 只维护“逻辑上下文 → OpenCode sessionID”的映射；
 - 通过 `opencode run` 执行任务，并管理 session 生命周期。
 
@@ -30,7 +30,7 @@ ocq ocsq oct ocsh occmt octrans
 aiq aiask aish ait aitrans   # 旧命令兼容别名
 ```
 
-安装时会创建模型配置模板 `~/.config/oclikits/config.jsonc`（已存在则不覆盖），安装完成后请填写其中的 `model`。详见下方[模型](#模型)一节。
+安装时会创建模型配置模板 `~/.config/oclikits/config.jsonc`（已存在则不覆盖），可选填写其中的 `model`；留空则复用 OpenCode 自身的默认模型。详见下方[模型](#模型)一节。
 
 请确保 `~/.local/bin` 在 `PATH` 中。
 
@@ -136,7 +136,8 @@ ocsq "HTTP 状态码 418 是什么" | pbcopy
 
 ```jsonc
 {
-  // 全局默认模型：所有命令在未配置专用模型时使用它（必填）。
+  // 全局默认模型：所有命令在未配置专用模型时使用它（可选）。
+  // 留空或不配置时，不向 opencode 传 --model，改用 OpenCode 自身的默认模型。
   "model": "opencode-go/mimo-v2.6-flash",
 
   // 各命令的专用模型（可选），留空则回退到上面的 "model"。
@@ -160,7 +161,7 @@ ocsq "HTTP 状态码 418 是什么" | pbcopy
 ocq -m opencode-go/deepseek-v4.1-flash "..."
 ```
 
-- 解析优先级：`-m/--model` > `commands.<命令>` > `model` > 报错提示配置。
+- 解析优先级：`-m/--model` > `commands.<命令>` > `model` > OpenCode 自身的默认模型。也就是说，oclikits 未配置任何模型时，不再报错，而是不传 `--model`，由 OpenCode 按自身优先级（全局/项目配置、会话已选模型）决定。
 
 ## 会话存储
 
