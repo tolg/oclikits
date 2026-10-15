@@ -1,94 +1,245 @@
-# aiclikits
+# oclikits
 
-一组可扩展的 AI 命令行工具（OpenAI API 兼容）。
+English | [简体中文](README.zh-CN.md)
 
-## 安装
+A lightweight command-line toolkit built on [OpenCode](https://opencode.ai). It wraps OpenCode's agents, models, tools and sessions into a few short everyday terminal commands.
+
+`oclikits` is the renamed and rewritten successor of `aiclikits`:
+
+- It does not implement its own LLM client, and does not manage API keys or base URLs.
+- It does not store chat history itself. Messages, tool calls and context compaction are all handled by OpenCode.
+- Models are not hard-coded. A global default and per-command models are set in `~/.config/oclikits/config.jsonc`.
+- It only maintains a mapping from logical context to OpenCode `sessionID`.
+- Tasks run through `opencode run`, and `oclikits` manages the session lifecycle.
+
+## Requirements
+
+- [OpenCode v2](https://opencode.ai), with providers and models already configured (login/API keys).
+- Rust toolchain (only needed for building).
+
+## Installation
 
 ```bash
 ./install.sh
 ```
 
-## 配置文件
+The installer builds the release binary and creates the main command `oc` plus short aliases in `~/.local/bin`:
 
-位置：`~/.config/aiclikits/config.json`
+```text
+ocq ocsq oct ocsh occmt octrans
+aiq aiask aish ait aitrans   # legacy aliases, kept for compatibility
+```
 
-示例见仓库根目录 `config.example.json`。
+The installer also creates a model config template at `~/.config/oclikits/config.jsonc` (an existing file is never overwritten). Fill in its `model` field after installation. See the [Models](#models) section below.
 
-示例：
+Make sure `~/.local/bin` is in your `PATH`.
 
-```json
+## Commands
+
+| Command | Description | Session |
+| :--- | :--- | :--- |
+| `ocq` | Continuous quick Q&A | One global persistent session |
+| `ocsq` | Single question, no history | Ephemeral session, deleted after the run |
+| `oct` | Chinese–English translation and typo correction | Ephemeral session, deleted after the run |
+| `ocsh` | Shell agent bound to the current directory | One persistent session per directory |
+| `occmt` | Git commits (Conventional Commits) | One ephemeral session per repository |
+
+Subcommands are also available through the main command: `oc q`, `oc sq`, `oc trans`, `oc shell`, `oc commit`.
+
+### ocq
+
+```bash
+ocq "What is the difference between a Swift actor and a class?"
+ocq "What about the performance overhead of actors?"
+ocq "Compare that with the class version"
+```
+
+- Consecutive calls belong to the same OpenCode session, so context is preserved.
+- Sessions are not separated by directory, and there is no turn limit. Context compaction is handled automatically by OpenCode.
+- `-n, --new`: delete the old session and start a new one.
+- `--clear`: delete the session and exit.
+
+### ocsq
+
+```bash
+ocsq "What is the difference between HTTP 409 and 422?"
+```
+
+A single question and a single answer. It does not pollute the `ocq` session history, so it suits small questions that don't need follow-up.
+
+### oct
+
+```bash
+oct "apple"
+oct "今天天气不错"
+oct "teh quick brown fox"
+```
+
+- Detects whether the input is Chinese or English and translates accordingly.
+- A single word returns several common, high-quality translations; a sentence returns one best translation.
+- English spelling and grammar errors are corrected before translation.
+- Each translation is an independent session with no shared history.
+
+### ocsh
+
+```bash
+cd ~/project
+ocsh "Find out why the startup fails"
+ocsh "Was the error I just saw caused by the configuration?"
+
+cd /tmp
+ocsh "Show what takes up the most disk space"
+```
+
+- The current working directory (after canonicalization) maps to exactly one OpenCode session.
+- Repeated calls in the same directory keep context; different directories are fully isolated.
+- `-n, --new`: clear the current directory's session and run the task in a new one.
+- `--clear`: clear only the current directory's session, leaving other directories untouched.
+- `--session` / `--list` / `--switch` are not provided. For complex session management, use the OpenCode TUI or Web UI.
+
+### occmt
+
+```bash
+occmt
+occmt --zh
+occmt --en
+occmt -m opencode-go/mimo-v2.6-flash
+```
+
+- Works on the current directory: if inside a Git repository, only that repository is processed; otherwise it searches up to two levels of subdirectories.
+- If several repositories with changes are found, they are listed and confirmed first.
+- Commit messages follow Conventional Commits. The default language is determined by project instructions (such as AGENTS.md) and repository context.
+- `--en` forces English; `--zh` forces Simplified Chinese (the type prefix remains in English).
+- Only commits. It never runs `git push`, never amends, and never creates empty commits.
+- Each repository uses its own temporary session, which is deleted automatically when the task ends (including on failure or interruption).
+
+## Output behavior
+
+- While running, text returned by OpenCode is shown in light gray as a live preview (streaming).
+- When the final result is ready, the preview and intermediate output are cleared, leaving only the final result.
+- When output is redirected or piped (stdout is not a terminal), no preview is shown and only the final result is printed:
+
+```bash
+ocq "Explain what mmap is" > answer.txt
+ocsq "What does HTTP status 418 mean?" | pbcopy
+```
+
+- Use `--debug` to see the raw JSON events and the full intermediate output (written to stderr).
+
+## Models
+
+Models are configured in a file rather than in the code:
+
+```text
+~/.config/oclikits/config.jsonc
+```
+
+```jsonc
 {
-  "openai": {
-    "apiKey": "sk-your-key",
-    "baseUrl": "https://api.openai.com/v1"
-  },
-  "models": {
-    "default": "qwen3-flash",
-    "shell": "qwen3-coder-flash-2025-07-28",
-    "ask": "qwen3-flash",
-    "trans": "qwen3-flash"
-  },
-  "defaults": {
-    "temperature": 0.1
+  // Global default model: used by all commands that have no dedicated model (required).
+  "model": "opencode-go/mimo-v2.6-flash",
+
+  // Per-command models (optional). Leave empty to fall back to "model" above.
+  "commands": {
+    "q": "",      // ocq: continuous quick Q&A
+    "sq": "",     // ocsq: single question (no history)
+    "trans": "",  // oct / octrans: Chinese–English translation and typo correction
+    "shell": "",  // ocsh: shell agent bound to the current directory
+    "commit": ""  // occmt: Git commits
   }
 }
 ```
 
-说明：
-
-- `openai.apiKey`：必填
-- `openai.baseUrl`：可选，不填时默认 `https://api.openai.com/v1`
-
-## 命令
-
-### aish
-
-自然语言转 shell 命令，并在执行前确认。
+- The `.jsonc` extension tells editors and tools to treat the file as "JSON with Comments", so comments won't cause errors.
+- `install.sh` creates the commented template above. If the file is missing at runtime, it is generated automatically; existing files are never overwritten.
+- When upgrading from the old `config.json`, if no `config.jsonc` exists, the old file is automatically renamed and migrated, so no settings are lost.
+- The keys under `commands` are the canonical command names: `q`, `sq`, `trans`, `shell`, `commit`.
+- All commands accept `-m, --model` to override the model temporarily, using OpenCode's `provider/model` format:
 
 ```bash
-aish "列出当前目录下最大的 10 个文件"
+ocq -m opencode-go/deepseek-v4.1-flash "..."
 ```
 
-### aiq
+- Resolution priority: `-m/--model` > `commands.<command>` > `model` > error prompting you to fix the config.
 
-简洁回答常识问题（1-3 句话）。
+## Session storage
+
+The session state file is created automatically. It lives in the same directory as `config.jsonc` and is independent of it:
+
+```text
+~/.config/oclikits/sessions.json
+```
+
+```json
+{
+  "version": 1,
+  "ocq": { "session_id": "ses_xxx" },
+  "ocsh": {
+    "/Users/me/project": { "session_id": "ses_aaa" },
+    "/tmp": { "session_id": "ses_bbb" }
+  }
+}
+```
+
+- The file is written via a temporary file followed by an atomic rename, and a file lock prevents concurrent overwrites.
+- If the OpenCode session referenced locally no longer exists, the command clears the stale mapping, creates a new session, and retries once.
+- Removing the local mapping and deleting the OpenCode session are two separate actions. A normal clear deletes the OpenCode session first, then removes the local record.
+
+## Permissions and security
+
+`ocsh` and `occmt` do not implement their own shell permission system. They rely entirely on OpenCode's `permission` configuration. Keep in mind:
+
+- `opencode run` is non-interactive. Any permission that would require confirmation (`ask`) is **automatically rejected** (auto-reject).
+- Operations you want to allow must be set to `allow` in the OpenCode configuration; operations to forbid should be set to `deny`.
+- Whether read-only investigation commands (`ls`, `grep`, `git status`, etc.) run automatically is also decided by this configuration.
+
+## Debugging
+
+All commands support `--debug`, which prints the actual `opencode run` arguments and the raw JSON events (written to stderr):
 
 ```bash
-aiq "swift 语言的枚举什么样"
+ocsh --debug "Check disk usage"
 ```
 
-会话历史：
+## Legacy command compatibility
 
-- `aiq` 会将最近的对话历史保存在 `~/.config/aiclikits/aiq_context.json`
-- 默认会带上历史上下文连续对话
-- 历史最多保留 20 条消息，即最多 10 轮用户/助手对话
-- 历史中只保存用户消息和助手回复，系统提示词不会写入历史文件
-- 如果历史文件损坏或不是合法 JSON，会自动回退为空历史
-- 使用 `-n` 或 `--new` 可清空历史并开始新对话
+| Legacy command | New command |
+| :--- | :--- |
+| `aiq` / `aiask` | `ocq` |
+| `aish` | `ocsh` |
+| `ait` / `aitrans` | `oct` |
 
-示例：
+Legacy command names still work, but they show a one-time notice about the rename. The old `~/.config/aiclikits/config.json` (with `openai`, `models`, `defaults`, etc.) is no longer used. Providers and permissions are managed by OpenCode, and `oclikits` only stores its model settings in `~/.config/oclikits/config.jsonc`.
+
+## Development
 
 ```bash
-aiq -n "重新开始，解释一下 Swift 的 enum"
+cargo build           # build
+cargo test            # unit tests
+cargo build --release # release build
 ```
 
-兼容说明：`aiask` 仍可用，但已转发到 `aiq`。
+Code layout:
 
-### aitrans / ait
-
-中英互译。自动判断输入语言，并翻译成另一种语言。
-
-```bash
-aitrans "apple"
-ait "今天天气不错"
+```text
+src/
+├── main.rs             # Entry point: dispatch by argv[0] alias and subcommand
+├── cli.rs              # clap command and argument definitions
+├── config.rs           # config.jsonc loading and model resolution
+├── error.rs            # Unified error type
+├── i18n.rs             # Chinese/English messages
+├── opencode/
+│   ├── runner.rs       # Unified opencode run invocation and event output
+│   ├── event.rs        # NDJSON event parsing
+│   └── session.rs      # sessions.json read/write and OpenCode session deletion
+├── commands/
+│   ├── q.rs            # ocq
+│   ├── sq.rs           # ocsq
+│   ├── trans.rs        # oct
+│   ├── shell.rs        # ocsh
+│   └── commit.rs       # occmt
+└── ui/
+    └── mod.rs          # Terminal output such as elapsed time and confirmations
 ```
 
-规则：
-
-- 如果输入是单词，返回常用、自然、现代语境里的译词，每行一个
-- 单词翻译优先质量，不强求凑满数量；如果常用译词本来就少，就少返回几个
-- 不返回明显生僻、过时、书面化过强、领域化、音译硬凑或不自然的候选
-- 如果是没有标准直译的英文特殊词、专有名词、风格名或社区术语，返回中文释义，而不是英文解释
-- 如果输入是句子、短语或多词表达，返回唯一的最佳翻译结果
-- 不保留会话历史，每次都是独立翻译
-- 使用 `models.trans` 作为模型配置；未设置时回退到 `models.default`
+`docs/reference/occmt.sh` is the shell reference implementation of `occmt` from before the rewrite.

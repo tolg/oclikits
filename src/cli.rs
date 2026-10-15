@@ -1,7 +1,12 @@
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 
 #[derive(Parser, Debug)]
-#[command(name = "aiclik", version, about = "AI CLI Kits in Rust")]
+#[command(
+    name = "oc",
+    version,
+    about = "OpenCode CLI Kits",
+    arg_required_else_help = true
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -9,31 +14,122 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Concise Q&A (maintains conversation context)
+    /// Continuous quick Q&A (persistent OpenCode session)
     #[command(name = "q", alias = "ask")]
-    Q {
-        /// Clear context memory and start a new conversation
-        #[arg(short = 'n', long = "new")]
-        new: bool,
+    Q(QArgs),
 
-        /// Question content
-        #[arg(required = true)]
-        query: Vec<String>,
-    },
+    /// Single question without history (ephemeral OpenCode session)
+    #[command(name = "sq", alias = "single")]
+    Sq(SqArgs),
 
-    /// Natural language to Shell command with confirmation
-    #[command(name = "shell")]
-    Shell {
-        /// Command description
-        #[arg(required = true)]
-        query: Vec<String>,
-    },
+    /// Translate between Chinese and English
+    #[command(name = "trans", alias = "t")]
+    Trans(TransArgs),
 
-    /// Translation between Chinese & English and spell check
-    #[command(name = "trans", alias = "ait")]
-    Trans {
-        /// Text to translate or correct
-        #[arg(required = true)]
-        query: Vec<String>,
-    },
+    /// Shell agent bound to the current directory
+    #[command(name = "shell", alias = "sh")]
+    Shell(ShellArgs),
+
+    /// Commit the current Git changes through OpenCode
+    #[command(name = "commit", alias = "cmt")]
+    Commit(CommitArgs),
+
+    /// Write the model config template to config.jsonc (used by install.sh)
+    #[command(name = "init-config", hide = true)]
+    InitConfig,
+}
+
+#[derive(Args, Debug)]
+pub struct QArgs {
+    /// Clear the Q&A session and exit
+    #[arg(long = "clear")]
+    pub clear: bool,
+
+    /// Delete the old Q&A session and start a new one
+    #[arg(short = 'n', long = "new")]
+    pub new: bool,
+
+    /// OpenCode model (overrides config.jsonc), in provider/model format
+    #[arg(short = 'm', long = "model", value_name = "MODEL")]
+    pub model: Option<String>,
+
+    /// Print raw OpenCode events
+    #[arg(long = "debug")]
+    pub debug: bool,
+
+    /// Question content
+    #[arg(value_name = "QUESTION")]
+    pub question: Vec<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct SqArgs {
+    /// OpenCode model (overrides config.jsonc), in provider/model format
+    #[arg(short = 'm', long = "model", value_name = "MODEL")]
+    pub model: Option<String>,
+
+    /// Print raw OpenCode events
+    #[arg(long = "debug")]
+    pub debug: bool,
+
+    /// Question content
+    #[arg(value_name = "QUESTION")]
+    pub question: Vec<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct TransArgs {
+    /// OpenCode model (overrides config.jsonc), in provider/model format
+    #[arg(short = 'm', long = "model", value_name = "MODEL")]
+    pub model: Option<String>,
+
+    /// Print raw OpenCode events
+    #[arg(long = "debug")]
+    pub debug: bool,
+
+    /// Text to translate or correct
+    #[arg(value_name = "TEXT")]
+    pub text: Vec<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct ShellArgs {
+    /// Clear the session of the current directory and exit
+    #[arg(long = "clear")]
+    pub clear: bool,
+
+    /// Delete the session of the current directory and start a new one
+    #[arg(short = 'n', long = "new")]
+    pub new: bool,
+
+    /// OpenCode model (overrides config.jsonc), in provider/model format
+    #[arg(short = 'm', long = "model", value_name = "MODEL")]
+    pub model: Option<String>,
+
+    /// Print raw OpenCode events
+    #[arg(long = "debug")]
+    pub debug: bool,
+
+    /// Task description
+    #[arg(value_name = "TASK")]
+    pub task: Vec<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct CommitArgs {
+    /// Write the commit message in English
+    #[arg(long = "en", conflicts_with = "zh")]
+    pub en: bool,
+
+    /// Write the commit message in Simplified Chinese
+    #[arg(long = "zh", conflicts_with = "en")]
+    pub zh: bool,
+
+    /// OpenCode model (overrides config.jsonc), in provider/model format
+    #[arg(short = 'm', long = "model", value_name = "MODEL")]
+    pub model: Option<String>,
+
+    /// Print raw OpenCode events
+    #[arg(long = "debug")]
+    pub debug: bool,
 }

@@ -1,154 +1,140 @@
-use crate::client::ApiClient;
-use crate::config::Config;
-use crate::error::{AidError, Result};
-use crate::timer::CommandTimer;
-use crate::ui::{print_command_box, start_spinner};
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-use std::env;
-use std::io::{self, Write};
-use std::path::Path;
-use std::process::Command;
+use std::path::{Path, PathBuf};
 
-pub async fn execute(cfg: &Config, query_parts: Vec<String>) -> Result<()> {
+use crate::cli::ShellArgs;
+use crate::error::{OcError, Result};
+use crate::i18n::{is_zh, tr};
+use crate::opencode::runner::{RunOptions, Runner};
+use crate::opencode::session::SessionStore;
+use crate::opencode::{resolve_model, Command};
+use crate::ui::{self, CommandTimer};
+
+/// `ocsh` — a lightweight shell agent bound to the current directory.
+///
+/// Exactly one OpenCode session exists per canonical working directory. When
+/// the session is reused, the agent keeps its context; a different directory
+/// always starts with a different session.
+pub async fn execute(args: ShellArgs) -> Result<()> {
     let timer = CommandTimer::start();
-    let query = query_parts.join(" ");
-    let query = query.trim();
-    if query.is_empty() {
-        if crate::i18n::is_zh() {
-            println!("用法: aish <自然语言指令>");
-        } else {
-            println!("Usage: aish <natural language command>");
-        }
+    let store = SessionStore::new();
+    let directory = current_directory()?;
+
+    if args.clear {
+        clear_session(&store, &directory, true).await?;
+        println!(
+            "{}",
+            tr(
+                "当前目录的 Shell 会话已清除。",
+                "Shell session for this directory cleared."
+            )
+        );
         return Ok(());
     }
 
-    let os_output = Command::new("uname")
-        .arg("-s")
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_else(|_| env::consts::OS.to_string());
+    let task = args.task.join(" ");
+    let task = task.trim();
+    if task.is_empty() {
+        print_usage();
+        return Ok(());
+    }
 
-    let shell_path = env::var("SHELL").unwrap_or_else(|_| "zsh".to_string());
-    let shell_name = Path::new(&shell_path)
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("zsh");
+    if args.new {
+        // Failures are already reported by `clear_session`; starting a fresh
+        // session is still the right behavior.
+        let _ = clear_session(&store, &directory, false).await;
+    }
 
-    let system_prompt = format!(
-        "You are a strict command-line translator for {} ({}).\n\
-        RULES:\n\
-        1. Output ONLY the raw executable command string.\n\
-        2. DO NOT include markdown code blocks (```).\n\
-        3. DO NOT output multiple options. Decide on the Single Best One.\n\
-        4. DO NOT include any explanations or conversational text.\n\
-        5. If multiple steps are required, combine them using '&&' or '|' or ';'.\n\
-        6. Your output will be directly executed by 'eval'. Any non-code text will cause a crash.",
-        os_output, shell_name
-    );
+    let model = resolve_model(Command::Shell, &args.model)?;
+    let runner = Runner::new(args.debug);
+    let prompt = build_prompt(&directory, task);
 
-    let pb_msg = if crate::i18n::is_zh() {
-        "🤖 思考中..."
-    } else {
-        "🤖 Thinking..."
-    };
-    let pb = start_spinner(pb_msg);
-    let client = ApiClient::new(cfg)?;
-    let model = cfg.model_for("shell", "qwen3-coder-flash-2025-07-28");
-    let temperature = cfg.temperature();
+    let mut session_id = store.get_ocsh(&directory)?;
+    let mut retried = false;
 
-    let content_res = client
-        .chat(&model, &system_prompt, query, temperature)
-        .await;
-
-    pb.finish_and_clear();
-
-    let content = content_res?;
-    let cmd = clean_command_output(&content);
-
-    if cmd.is_empty() {
-        let err_msg = if crate::i18n::is_zh() {
-            "解析为空"
-        } else {
-            "Empty response"
+    loop {
+        let options = RunOptions {
+            model: model.clone(),
+            session_id: session_id.clone(),
+            directory: Some(directory.clone()),
+            prompt: prompt.clone(),
+            ephemeral: false,
         };
-        return Err(AidError::Config(err_msg.to_string()));
-    }
 
-    print_command_box(&cmd);
-    timer.print_elapsed();
-    println!();
-
-    if crate::i18n::is_zh() {
-        print!("执行? [Y/n] ");
-    } else {
-        print!("Execute? [Y/n] ");
-    }
-    io::stdout().flush().ok();
-
-    let confirm = read_confirmation()?;
-    if confirm {
-        println!();
-        let status = Command::new(&shell_path)
-            .arg("-c")
-            .arg(&cmd)
-            .status()?;
-        if !status.success() {
-            if let Some(code) = status.code() {
-                if crate::i18n::is_zh() {
-                    eprintln!("命令退出码: {}", code);
-                } else {
-                    eprintln!("Command exit code: {}", code);
+        match runner.run(&options).await {
+            Ok(result) => {
+                if let Some(id) = result.session_id {
+                    if session_id.as_deref() != Some(id.as_str()) {
+                        store.set_ocsh(&directory, &id)?;
+                    }
                 }
+                break;
             }
-        }
-    } else {
-        if crate::i18n::is_zh() {
-            println!("\n已取消。");
-        } else {
-            println!("\nCancelled.");
+            Err(OcError::SessionNotFound(_)) if !retried => {
+                ui::warn(tr(
+                    "会话已失效，正在创建新会话...",
+                    "Session is no longer available; creating a new one...",
+                ));
+                store.clear_ocsh(&directory)?;
+                session_id = None;
+                retried = true;
+            }
+            Err(err) => return Err(err),
         }
     }
 
+    timer.print_elapsed();
     Ok(())
 }
 
-fn clean_command_output(raw: &str) -> String {
-    let mut lines = raw.lines();
-    while let Some(line) = lines.next() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let cleaned = trimmed
-            .trim_start_matches("```")
-            .trim_start_matches("```bash")
-            .trim_start_matches("```sh")
-            .trim_start_matches('`')
-            .trim_end_matches("```")
-            .trim_end_matches('`')
-            .trim();
-
-        if !cleaned.is_empty() {
-            return cleaned.to_string();
-        }
+async fn clear_session(store: &SessionStore, directory: &Path, strict: bool) -> Result<()> {
+    if let Some(session_id) = store.get_ocsh(directory)? {
+        super::delete_session(&session_id, strict).await?;
+        store.clear_ocsh(directory)?;
     }
-    String::new()
+    Ok(())
 }
 
-fn read_confirmation() -> Result<bool> {
-    enable_raw_mode()?;
-    let result = loop {
-        if let Event::Key(key_event) = event::read()? {
-            if key_event.kind == KeyEventKind::Press {
-                match key_event.code {
-                    KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => break true,
-                    KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => break false,
-                    _ => break true, // Default to true on other keypress/enter like in original script
-                }
-            }
-        }
-    };
-    disable_raw_mode()?;
-    Ok(result)
+fn current_directory() -> Result<PathBuf> {
+    let cwd = std::env::current_dir()?;
+    Ok(std::fs::canonicalize(&cwd).unwrap_or(cwd))
+}
+
+fn build_prompt(directory: &Path, task: &str) -> String {
+    let os = std::env::consts::OS;
+    let shell = std::env::var("SHELL")
+        .ok()
+        .and_then(|shell| {
+            Path::new(&shell)
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .unwrap_or_else(|| "sh".to_string());
+    let directory = directory.display();
+
+    if is_zh() {
+        format!(
+            "你是一个运行在终端中的 Shell Agent。\n\n当前工作目录：{}\n操作系统：{}\n默认 Shell：{}\n\n请使用 Shell 和文件工具调查并完成用户的任务。优先使用只读命令进行调查，最后简洁汇报结果。\n\n任务：\n{}",
+            directory, os, shell, task
+        )
+    } else {
+        format!(
+            "You are a shell agent running in a terminal.\n\nWorking directory: {}\nOperating system: {}\nDefault shell: {}\n\nInvestigate and complete the user's task using shell and file tools. Prefer read-only commands for investigation and finish with a concise report.\n\nTask:\n{}",
+            directory, os, shell, task
+        )
+    }
+}
+
+fn print_usage() {
+    if is_zh() {
+        println!("用法: ocsh [选项] <任务>");
+        println!("  -n, --new         删除当前目录会话并开始新会话");
+        println!("  --clear           清除当前目录会话后退出");
+        println!("  -m, --model       覆盖配置文件中的模型");
+        println!("  --debug           输出原始 OpenCode 事件");
+    } else {
+        println!("Usage: ocsh [options] <task>");
+        println!("  -n, --new         Delete the session of this directory and start a new one");
+        println!("  --clear           Clear the session of this directory and exit");
+        println!("  -m, --model       Override the model from config.jsonc");
+        println!("  --debug           Print raw OpenCode events");
+    }
 }

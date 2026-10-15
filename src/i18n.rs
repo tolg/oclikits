@@ -9,7 +9,7 @@ pub enum Language {
 static CURRENT_LANG: OnceLock<Language> = OnceLock::new();
 
 pub fn detect_language() -> Language {
-    let vars = ["AID_LANG", "LC_ALL", "LC_MESSAGES", "LANG"];
+    let vars = ["OCLIKITS_LANG", "AID_LANG", "LC_ALL", "LC_MESSAGES", "LANG"];
     for var in &vars {
         if let Ok(val) = std::env::var(var) {
             let lower = val.to_lowercase();
@@ -29,6 +29,15 @@ pub fn current_lang() -> Language {
 
 pub fn is_zh() -> bool {
     current_lang() == Language::Zh
+}
+
+/// Pick the message matching the current language.
+pub fn tr<'a>(zh: &'a str, en: &'a str) -> &'a str {
+    if is_zh() {
+        zh
+    } else {
+        en
+    }
 }
 
 #[cfg(test)]

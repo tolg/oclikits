@@ -1,180 +1,196 @@
 mod cli;
-mod client;
 mod commands;
 mod config;
 mod error;
-mod history;
 mod i18n;
-mod timer;
+mod opencode;
 mod ui;
 
-use clap::{CommandFactory, FromArgMatches, Parser};
-use cli::{Cli, Commands};
-use config::Config;
 use std::env;
 use std::ffi::OsStr;
 use std::path::Path;
 use std::process::exit;
 
-#[derive(Parser, Debug)]
-#[command(name = "aiq", about = "Concise Q&A (maintains conversation context)")]
-struct AliasQ {
-    /// Clear context memory and start a new conversation
-    #[arg(short = 'n', long = "new")]
-    new: bool,
+use clap::{CommandFactory, FromArgMatches};
 
-    /// Question content
-    #[arg(required = true)]
-    query: Vec<String>,
-}
-
-#[derive(Parser, Debug)]
-#[command(
-    name = "aish",
-    about = "Natural language to Shell command with confirmation"
-)]
-struct AliasShell {
-    /// Command description
-    #[arg(required = true)]
-    query: Vec<String>,
-}
-
-#[derive(Parser, Debug)]
-#[command(
-    name = "aitrans",
-    about = "Translation between Chinese & English and spell check"
-)]
-struct AliasTrans {
-    /// Text to translate or correct
-    #[arg(required = true)]
-    query: Vec<String>,
-}
-
-fn parse_alias_q(args: &[String]) -> AliasQ {
-    let mut cmd = AliasQ::command();
-    if i18n::is_zh() {
-        cmd = cmd
-            .about("简洁问答 (保持历史上下文)")
-            .mut_arg("new", |a| a.help("清除上下文记忆并开始新对话"))
-            .mut_arg("query", |a| a.help("问题内容"));
-    } else {
-        cmd = cmd
-            .about("Concise Q&A (maintains conversation context)")
-            .mut_arg("new", |a| {
-                a.help("Clear context memory and start a new conversation")
-            })
-            .mut_arg("query", |a| a.help("Question content"));
-    }
-    let matches = cmd.get_matches_from(args);
-    AliasQ::from_arg_matches(&matches).unwrap_or_else(|err| err.exit())
-}
-
-fn parse_alias_shell(args: &[String]) -> AliasShell {
-    let mut cmd = AliasShell::command();
-    if i18n::is_zh() {
-        cmd = cmd
-            .about("自然语言指令转 Shell 并交互确认")
-            .mut_arg("query", |a| a.help("指令描述"));
-    } else {
-        cmd = cmd
-            .about("Natural language to Shell command with confirmation")
-            .mut_arg("query", |a| a.help("Command description"));
-    }
-    let matches = cmd.get_matches_from(args);
-    AliasShell::from_arg_matches(&matches).unwrap_or_else(|err| err.exit())
-}
-
-fn parse_alias_trans(args: &[String]) -> AliasTrans {
-    let mut cmd = AliasTrans::command();
-    if i18n::is_zh() {
-        cmd = cmd
-            .about("中英翻译与错别字纠正")
-            .mut_arg("query", |a| a.help("翻译或纠错文本"));
-    } else {
-        cmd = cmd
-            .about("Translation between Chinese & English and spell check")
-            .mut_arg("query", |a| a.help("Text to translate or correct"));
-    }
-    let matches = cmd.get_matches_from(args);
-    AliasTrans::from_arg_matches(&matches).unwrap_or_else(|err| err.exit())
-}
-
-fn parse_cli(args: &[String]) -> Cli {
-    let mut cmd = Cli::command();
-    if i18n::is_zh() {
-        cmd = cmd
-            .about("AI CLI Kits in Rust")
-            .mut_subcommand("q", |sub| {
-                sub.about("简洁问答 (保持历史上下文)")
-                    .mut_arg("new", |a| a.help("清除上下文记忆并开始新对话"))
-                    .mut_arg("query", |a| a.help("问题内容"))
-            })
-            .mut_subcommand("shell", |sub| {
-                sub.about("自然语言指令转 Shell 并交互确认")
-                    .mut_arg("query", |a| a.help("指令描述"))
-            })
-            .mut_subcommand("trans", |sub| {
-                sub.about("中英翻译与错别字纠正")
-                    .mut_arg("query", |a| a.help("翻译或纠错文本"))
-            });
-    } else {
-        cmd = cmd
-            .about("AI CLI Kits in Rust")
-            .mut_subcommand("q", |sub| {
-                sub.about("Concise Q&A (maintains conversation context)")
-                    .mut_arg("new", |a| {
-                        a.help("Clear context memory and start a new conversation")
-                    })
-                    .mut_arg("query", |a| a.help("Question content"))
-            })
-            .mut_subcommand("shell", |sub| {
-                sub.about("Natural language to Shell command with confirmation")
-                    .mut_arg("query", |a| a.help("Command description"))
-            })
-            .mut_subcommand("trans", |sub| {
-                sub.about("Translation between Chinese & English and spell check")
-                    .mut_arg("query", |a| a.help("Text to translate or correct"))
-            });
-    }
-    let matches = cmd.get_matches_from(args);
-    Cli::from_arg_matches(&matches).unwrap_or_else(|err| err.exit())
-}
+use cli::{Cli, Commands, CommitArgs, QArgs, ShellArgs, SqArgs, TransArgs};
+use error::{OcError, Result};
 
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = env::args().collect();
     let exec_name = args
         .first()
-        .map(|s| Path::new(s).file_name().and_then(OsStr::to_str).unwrap_or("aid"))
-        .unwrap_or("aid");
+        .map(|arg| {
+            Path::new(arg)
+                .file_name()
+                .and_then(OsStr::to_str)
+                .unwrap_or("oc")
+        })
+        .unwrap_or("oc")
+        .to_string();
 
-    let cfg = Config::load();
+    match run(&exec_name, &args).await {
+        Ok(()) => {}
+        Err(OcError::Interrupted) => {
+            eprintln!("{}", i18n::tr("❌ 已中断。", "❌ Interrupted."));
+            exit(130);
+        }
+        Err(err) => {
+            eprintln!("❌ {}", err);
+            exit(1);
+        }
+    }
+}
 
-    let result = match exec_name {
-        "aiq" | "aiask" => {
-            let parsed = parse_alias_q(&args);
-            commands::q::execute(&cfg, parsed.new, parsed.query).await
+async fn run(exec_name: &str, args: &[String]) -> Result<()> {
+    match exec_name {
+        "ocq" => commands::q::execute(parse_alias::<QArgs>("q", "ocq", args)).await,
+        "ocsq" => commands::sq::execute(parse_alias::<SqArgs>("sq", "ocsq", args)).await,
+        "oct" => commands::trans::execute(parse_alias::<TransArgs>("trans", "oct", args)).await,
+        "octrans" => {
+            commands::trans::execute(parse_alias::<TransArgs>("trans", "octrans", args)).await
+        }
+        "ocsh" => commands::shell::execute(parse_alias::<ShellArgs>("shell", "ocsh", args)).await,
+        "occmt" => {
+            commands::commit::execute(parse_alias::<CommitArgs>("commit", "occmt", args)).await
+        }
+
+        // Legacy names from aiclikits, kept with a one-time migration hint.
+        "aiq" => {
+            legacy_hint("aiq", "ocq");
+            commands::q::execute(parse_alias::<QArgs>("q", "aiq", args)).await
+        }
+        "aiask" => {
+            legacy_hint("aiask", "ocq");
+            commands::q::execute(parse_alias::<QArgs>("q", "aiask", args)).await
         }
         "aish" => {
-            let parsed = parse_alias_shell(&args);
-            commands::shell::execute(&cfg, parsed.query).await
+            legacy_hint("aish", "ocsh");
+            commands::shell::execute(parse_alias::<ShellArgs>("shell", "aish", args)).await
         }
-        "ait" | "aitrans" => {
-            let parsed = parse_alias_trans(&args);
-            commands::trans::execute(&cfg, parsed.query).await
+        "ait" => {
+            legacy_hint("ait", "oct");
+            commands::trans::execute(parse_alias::<TransArgs>("trans", "ait", args)).await
         }
+        "aitrans" => {
+            legacy_hint("aitrans", "oct");
+            commands::trans::execute(parse_alias::<TransArgs>("trans", "aitrans", args)).await
+        }
+
+        // `oc <subcommand>` and any other name fall back to subcommand mode.
         _ => {
-            let cli = parse_cli(&args);
+            let cli = parse_cli(args);
             match cli.command {
-                Commands::Q { new, query } => commands::q::execute(&cfg, new, query).await,
-                Commands::Shell { query } => commands::shell::execute(&cfg, query).await,
-                Commands::Trans { query } => commands::trans::execute(&cfg, query).await,
+                Commands::Q(args) => commands::q::execute(args).await,
+                Commands::Sq(args) => commands::sq::execute(args).await,
+                Commands::Trans(args) => commands::trans::execute(args).await,
+                Commands::Shell(args) => commands::shell::execute(args).await,
+                Commands::Commit(args) => commands::commit::execute(args).await,
+                Commands::InitConfig => {
+                    let path = config::config_path();
+                    if config::write_config_template()? {
+                        println!(
+                            "{} {}",
+                            i18n::tr(
+                                "已创建模型配置模板，请填写 model：",
+                                "Created model config template, fill in model:"
+                            ),
+                            path.display()
+                        );
+                    } else {
+                        println!(
+                            "{} {}",
+                            i18n::tr("模型配置已存在：", "Model config already exists:"),
+                            path.display()
+                        );
+                    }
+                    Ok(())
+                }
             }
         }
-    };
-
-    if let Err(err) = result {
-        eprintln!("❌ {}", err);
-        exit(1);
     }
+}
+
+/// Parse one subcommand definition as a top-level command, so that a symlink
+/// like `ocq` behaves exactly like `oc q` while showing its own name in help.
+fn parse_alias<T: clap::Args>(subcommand: &str, exec_name: &'static str, args: &[String]) -> T {
+    let mut cmd = build_cli();
+    let command = cmd
+        .find_subcommand_mut(subcommand)
+        .expect("subcommand is defined")
+        .clone()
+        .name(exec_name)
+        .bin_name(exec_name)
+        .version(env!("CARGO_PKG_VERSION"));
+
+    let matches = command.get_matches_from(args);
+    T::from_arg_matches(&matches).unwrap_or_else(|err| err.exit())
+}
+
+fn parse_cli(args: &[String]) -> Cli {
+    let matches = build_cli().get_matches_from(args);
+    Cli::from_arg_matches(&matches).unwrap_or_else(|err| err.exit())
+}
+
+fn build_cli() -> clap::Command {
+    let mut cmd = Cli::command();
+
+    if i18n::is_zh() {
+        cmd = cmd
+            .about("基于 OpenCode 的命令行工具集")
+            .mut_subcommand("q", |sub| {
+                sub.about("连续快速问答（保持会话）")
+                    .mut_arg("clear", |arg| arg.help("清除问答会话后退出"))
+                    .mut_arg("new", |arg| arg.help("删除旧会话并开始新会话"))
+                    .mut_arg("model", |arg| {
+                        arg.help("指定 OpenCode 模型（覆盖配置文件），格式 provider/model")
+                    })
+                    .mut_arg("debug", |arg| arg.help("输出原始 OpenCode 事件"))
+                    .mut_arg("question", |arg| arg.help("问题内容"))
+            })
+            .mut_subcommand("sq", |sub| {
+                sub.about("单次问答（无历史，临时会话）")
+                    .mut_arg("model", |arg| {
+                        arg.help("指定 OpenCode 模型（覆盖配置文件），格式 provider/model")
+                    })
+                    .mut_arg("debug", |arg| arg.help("输出原始 OpenCode 事件"))
+                    .mut_arg("question", |arg| arg.help("问题内容"))
+            })
+            .mut_subcommand("trans", |sub| {
+                sub.about("中英翻译与错别字纠正")
+                    .mut_arg("model", |arg| {
+                        arg.help("指定 OpenCode 模型（覆盖配置文件），格式 provider/model")
+                    })
+                    .mut_arg("debug", |arg| arg.help("输出原始 OpenCode 事件"))
+                    .mut_arg("text", |arg| arg.help("翻译或纠错文本"))
+            })
+            .mut_subcommand("shell", |sub| {
+                sub.about("绑定当前目录的 Shell Agent")
+                    .mut_arg("clear", |arg| arg.help("清除当前目录会话后退出"))
+                    .mut_arg("new", |arg| arg.help("删除当前目录会话并开始新会话"))
+                    .mut_arg("model", |arg| {
+                        arg.help("指定 OpenCode 模型（覆盖配置文件），格式 provider/model")
+                    })
+                    .mut_arg("debug", |arg| arg.help("输出原始 OpenCode 事件"))
+                    .mut_arg("task", |arg| arg.help("任务描述"))
+            })
+            .mut_subcommand("commit", |sub| {
+                sub.about("通过 OpenCode 提交当前 Git 修改")
+                    .mut_arg("en", |arg| arg.help("提交信息使用英文"))
+                    .mut_arg("zh", |arg| arg.help("提交信息使用简体中文"))
+                    .mut_arg("model", |arg| {
+                        arg.help("指定 OpenCode 模型（覆盖配置文件），格式 provider/model")
+                    })
+                    .mut_arg("debug", |arg| arg.help("输出原始 OpenCode 事件"))
+            });
+    }
+
+    cmd
+}
+
+fn legacy_hint(old: &str, new: &str) {
+    let zh = format!("提示：{} 已更名为 {}。", old, new);
+    let en = format!("Note: {} has been renamed to {}.", old, new);
+    ui::note(i18n::tr(&zh, &en));
 }

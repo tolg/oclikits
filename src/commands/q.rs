@@ -1,69 +1,109 @@
-use crate::client::types::ChatMessage;
-use crate::client::ApiClient;
-use crate::config::Config;
-use crate::error::Result;
-use crate::history::HistoryManager;
-use crate::timer::CommandTimer;
-use std::io::{self, Write};
+use crate::cli::QArgs;
+use crate::error::{OcError, Result};
+use crate::i18n::{is_zh, tr};
+use crate::opencode::runner::{RunOptions, Runner};
+use crate::opencode::session::SessionStore;
+use crate::opencode::{resolve_model, Command};
+use crate::ui::{self, CommandTimer};
 
-pub async fn execute(cfg: &Config, new: bool, query_parts: Vec<String>) -> Result<()> {
+/// `ocq` — continuous quick Q&A.
+///
+/// A single global OpenCode session is reused for every invocation, so
+/// follow-up questions keep their context. Message history and compaction are
+/// entirely owned by OpenCode.
+pub async fn execute(args: QArgs) -> Result<()> {
     let timer = CommandTimer::start();
-    let history_mgr = HistoryManager::new();
+    let store = SessionStore::new();
 
-    if new {
-        history_mgr.clear();
-        if crate::i18n::is_zh() {
-            println!("🧹 记忆已清除");
-        } else {
-            println!("🧹 Memory cleared");
-        }
-    }
-
-    let query = query_parts.join(" ");
-    let query = query.trim();
-    if query.is_empty() {
-        if crate::i18n::is_zh() {
-            println!("用法: aiq [选项] <问题>");
-            println!("  -n, --new   清除上下文记忆并开始新对话");
-        } else {
-            println!("Usage: aiq [options] <question>");
-            println!("  -n, --new   Clear context memory and start a new conversation");
-        }
+    if args.clear {
+        clear_session(&store, true).await?;
+        println!("{}", tr("问答历史已清除。", "Q&A history cleared."));
         return Ok(());
     }
 
-    let system_prompt = if crate::i18n::is_zh() {
-        "用 1-3 句话简洁回答以下问题，不要冗余，直接给结论："
-    } else {
-        "Answer the following question concisely in 1-3 sentences without redundancy, give the conclusion directly:"
-    };
-    let history = history_mgr.load();
+    let question = args.question.join(" ");
+    let question = question.trim();
+    if question.is_empty() {
+        print_usage();
+        return Ok(());
+    }
 
-    let mut messages = vec![ChatMessage::system(system_prompt)];
-    messages.extend(history);
+    if args.new {
+        // Failures are already reported by `clear_session`; starting a fresh
+        // session is still the right behavior.
+        let _ = clear_session(&store, false).await;
+    }
 
-    let user_msg = ChatMessage::user(query);
-    messages.push(user_msg.clone());
+    let model = resolve_model(Command::Q, &args.model)?;
+    let runner = Runner::new(args.debug);
+    let prompt = build_prompt(question);
 
-    let client = ApiClient::new(cfg)?;
-    let model = cfg.model_for("ask", "qwen3-flash");
-    let temperature = cfg.temperature();
+    let mut session_id = store.get_ocq()?;
+    let mut retried = false;
 
-    let answer = client
-        .chat_messages_stream(&model, messages, temperature, |chunk| {
-            print!("{}", chunk);
-            io::stdout().flush().ok();
-        })
-        .await?;
+    loop {
+        let options = RunOptions {
+            model: model.clone(),
+            session_id: session_id.clone(),
+            directory: None,
+            prompt: prompt.clone(),
+            ephemeral: false,
+        };
 
-    println!();
+        match runner.run(&options).await {
+            Ok(result) => {
+                if let Some(id) = result.session_id {
+                    if session_id.as_deref() != Some(id.as_str()) {
+                        store.set_ocq(&id)?;
+                    }
+                }
+                break;
+            }
+            Err(OcError::SessionNotFound(_)) if !retried => {
+                ui::warn(tr(
+                    "会话已失效，正在创建新会话...",
+                    "Session is no longer available; creating a new one...",
+                ));
+                store.clear_ocq()?;
+                session_id = None;
+                retried = true;
+            }
+            Err(err) => return Err(err),
+        }
+    }
+
     timer.print_elapsed();
-
-    let assistant_msg = ChatMessage::assistant(answer.trim());
-    let mut updated_history = history_mgr.load();
-    updated_history.push(user_msg);
-    updated_history.push(assistant_msg);
-    history_mgr.save(updated_history);
-
     Ok(())
+}
+
+async fn clear_session(store: &SessionStore, strict: bool) -> Result<()> {
+    if let Some(session_id) = store.get_ocq()? {
+        super::delete_session(&session_id, strict).await?;
+        store.clear_ocq()?;
+    }
+    Ok(())
+}
+
+fn build_prompt(question: &str) -> String {
+    let instruction = tr(
+        "请用 1-3 句话简洁回答下面的问题，直接给出结论，不要冗余。除非用户明确要求，否则不要使用任何工具。",
+        "Answer the question below concisely in 1-3 sentences, conclusion first. Do not use tools unless explicitly asked.",
+    );
+    format!("{}\n\n{}", instruction, question)
+}
+
+fn print_usage() {
+    if is_zh() {
+        println!("用法: ocq [选项] <问题>");
+        println!("  -n, --new         删除旧会话并开始新会话");
+        println!("  --clear           清除问答会话后退出");
+        println!("  -m, --model       覆盖配置文件中的模型");
+        println!("  --debug           输出原始 OpenCode 事件");
+    } else {
+        println!("Usage: ocq [options] <question>");
+        println!("  -n, --new         Delete the old session and start a new one");
+        println!("  --clear           Clear the Q&A session and exit");
+        println!("  -m, --model       Override the model from config.jsonc");
+        println!("  --debug           Print raw OpenCode events");
+    }
 }

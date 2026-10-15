@@ -1,24 +1,42 @@
-use crate::client::types::ChatMessage;
-use crate::client::ApiClient;
-use crate::config::Config;
+use crate::cli::TransArgs;
 use crate::error::Result;
-use crate::timer::CommandTimer;
-use std::io::{self, Write};
+use crate::i18n::is_zh;
+use crate::opencode::runner::{RunOptions, Runner};
+use crate::opencode::{resolve_model, Command};
+use crate::ui::CommandTimer;
 
-pub async fn execute(cfg: &Config, query_parts: Vec<String>) -> Result<()> {
+/// `oct` — Chinese/English translation with spelling correction.
+///
+/// Every translation uses a fresh ephemeral session, so context never leaks
+/// between translations.
+pub async fn execute(args: TransArgs) -> Result<()> {
     let timer = CommandTimer::start();
-    let query = query_parts.join(" ");
-    let query = query.trim();
-    if query.is_empty() {
-        if crate::i18n::is_zh() {
-            println!("用法: aitrans <要翻译的内容>");
-        } else {
-            println!("Usage: aitrans <text to translate>");
-        }
+
+    let text = args.text.join(" ");
+    let text = text.trim();
+    if text.is_empty() {
+        print_usage();
         return Ok(());
     }
 
-    let (rule14_header, rule14_fix, rule16_header) = if crate::i18n::is_zh() {
+    let model = resolve_model(Command::Trans, &args.model)?;
+    let runner = Runner::new(args.debug);
+    let options = RunOptions {
+        model,
+        session_id: None,
+        directory: None,
+        prompt: build_prompt(text),
+        ephemeral: true,
+    };
+
+    runner.run(&options).await?;
+
+    timer.print_elapsed();
+    Ok(())
+}
+
+fn build_prompt(text: &str) -> String {
+    let (rule14_header, rule14_fix, rule16_header) = if is_zh() {
         (
             "您是否想查询以下句子？",
             "修正:",
@@ -32,7 +50,7 @@ pub async fn execute(cfg: &Config, query_parts: Vec<String>) -> Result<()> {
         )
     };
 
-    let system_prompt = format!(
+    let rules = format!(
         "You are a strict Chinese-English translator.\n\
 Rules:\n\
 1. Detect whether the input is primarily Chinese or English, then translate it into the other language.\n\
@@ -51,28 +69,22 @@ Rules:\n\
 14. Output format for corrected sentence: first line is exactly → {}, second line is exactly {} {{corrected_sentence}}, followed by a blank line, then the translation (one line as per rule 3 for sentences).\n\
 15. If the input is a single English word that appears to be misspelled, first output the correction hint, then provide its Chinese translation as usual.\n\
 16. Output format for corrected single word: first line is exactly → {}, followed by a blank line, then the translation candidates one per line.\n\
-17. Only apply spelling/grammar correction to English input. Do not apply to Chinese input or proper nouns/terms that look intentional.",
+17. Only apply spelling/grammar correction to English input. Do not apply to Chinese input or proper nouns/terms that look intentional.\n\
+18. Do not call any tools or read any files. Reply with the translation result only.",
         rule14_header, rule14_fix, rule16_header
     );
 
-    let client = ApiClient::new(cfg)?;
-    let model = cfg.model_for("trans", "qwen3-flash");
-    let temperature = cfg.temperature();
+    format!("{}\n\nInput:\n{}", rules, text)
+}
 
-    let messages = vec![
-        ChatMessage::system(&system_prompt),
-        ChatMessage::user(query),
-    ];
-
-    client
-        .chat_messages_stream(&model, messages, temperature, |chunk| {
-            print!("{}", chunk);
-            io::stdout().flush().ok();
-        })
-        .await?;
-
-    println!();
-    timer.print_elapsed();
-
-    Ok(())
+fn print_usage() {
+    if is_zh() {
+        println!("用法: oct [选项] <翻译内容>");
+        println!("  -m, --model       覆盖配置文件中的模型");
+        println!("  --debug           输出原始 OpenCode 事件");
+    } else {
+        println!("Usage: oct [options] <text>");
+        println!("  -m, --model       Override the model from config.jsonc");
+        println!("  --debug           Print raw OpenCode events");
+    }
 }
