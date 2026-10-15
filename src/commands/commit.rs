@@ -64,6 +64,7 @@ pub async fn execute(args: CommitArgs) -> Result<()> {
             directory: Some(repo.clone()),
             prompt: prompt.clone(),
             ephemeral: true,
+            show_tool_calls: false,
         };
 
         match runner.run(&options).await {

@@ -57,6 +57,7 @@ pub async fn execute(args: ShellArgs) -> Result<()> {
             directory: Some(directory.clone()),
             prompt: prompt.clone(),
             ephemeral: false,
+            show_tool_calls: true,
         };
 
         match runner.run(&options).await {

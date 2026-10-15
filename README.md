@@ -93,6 +93,7 @@ ocsh "Show what takes up the most disk space"
 
 - The current working directory (after canonicalization) maps to exactly one OpenCode session.
 - Repeated calls in the same directory keep context; different directories are fully isolated.
+- While running, it shows the shell commands the agent actually executes (prefixed with `$`) and other tool calls, so you can see what it does.
 - `-n, --new`: clear the current directory's session and run the task in a new one.
 - `--clear`: clear only the current directory's session, leaving other directories untouched.
 - `--session` / `--list` / `--switch` are not provided. For complex session management, use the OpenCode TUI or Web UI.
@@ -116,7 +117,8 @@ occmt -m opencode-go/mimo-v2.6-flash
 ## Output behavior
 
 - While running, text returned by OpenCode is shown in light gray as a live preview (streaming).
-- When the final result is ready, the preview and intermediate output are cleared, leaving only the final result.
+- `ocsh` additionally shows the shell commands the agent executes (prefixed with `$`) and other tool calls; this record goes to stderr, stays visible even when stdout is redirected or piped, and is never cleared.
+- When the final result is ready, the preview and intermediate output are cleared, leaving only the final result (plus the command record above).
 - When output is redirected or piped (stdout is not a terminal), no preview is shown and only the final result is printed:
 
 ```bash

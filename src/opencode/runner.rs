@@ -21,6 +21,10 @@ pub struct RunOptions {
     /// Delete the OpenCode session when this run finishes, on success, failure
     /// or interrupt. Used by ephemeral commands (`ocsq`, `oct`, `occmt`).
     pub ephemeral: bool,
+    /// Show the shell commands (and other tool calls) the agent performs.
+    /// Enabled by `ocsh` so the user can see what is executed; other commands
+    /// keep stdout limited to the final result.
+    pub show_tool_calls: bool,
 }
 
 pub struct RunResult {
@@ -115,7 +119,7 @@ impl Runner {
                 read = reader.read_line(&mut line) => {
                     match read {
                         Ok(0) => break,
-                        Ok(_) => self.handle_line(&mut ctx, &mut preview, line.trim_end()),
+                        Ok(_) => self.handle_line(&mut ctx, &mut preview, options, line.trim_end()),
                         Err(err) => {
                             let _ = child.start_kill();
                             let _ = child.wait().await;
@@ -145,6 +149,7 @@ impl Runner {
             last_block,
             error_message,
             session_not_found,
+            ..
         } = ctx;
 
         if session_not_found {
@@ -178,7 +183,13 @@ impl Runner {
         })
     }
 
-    fn handle_line(&self, ctx: &mut RunContext, preview: &mut Preview, line: &str) {
+    fn handle_line(
+        &self,
+        ctx: &mut RunContext,
+        preview: &mut Preview,
+        options: &RunOptions,
+        line: &str,
+    ) {
         if line.is_empty() {
             return;
         }
@@ -212,6 +223,9 @@ impl Runner {
                 ctx.final_text.push_str(text);
             }
         } else if event.is_tool_use() {
+            if options.show_tool_calls {
+                show_tool_call(ctx, preview, &event);
+            }
             // Text before a tool call is interim commentary, not the answer.
             if !ctx.final_text.is_empty() {
                 ctx.last_block = std::mem::take(&mut ctx.final_text);
@@ -261,6 +275,29 @@ impl Runner {
     }
 }
 
+/// Show one tool call as a permanent line, replacing the dimmed text preview.
+///
+/// The interim commentary that preceded the tool call is erased first, so what
+/// remains on screen is the activity log (commands and tool calls) plus, at the
+/// end, the final result. Commands are written to stderr, so they stay visible
+/// even when stdout is redirected. Each tool call is shown only once, even if
+/// OpenCode emits it more than once while it changes state.
+fn show_tool_call(ctx: &mut RunContext, preview: &mut Preview, event: &OpenCodeEvent) {
+    if let Some(id) = event.tool_id() {
+        if !ctx.shown_tools.insert(id.to_string()) {
+            return;
+        }
+    }
+
+    preview.clear();
+
+    if let Some(command) = event.tool_command().filter(|c| !c.trim().is_empty()) {
+        ui::print_command(command);
+    } else if let Some(name) = event.tool_name() {
+        ui::print_tool(name, event.tool_title());
+    }
+}
+
 /// Pick what the user should see as the final result.
 ///
 /// The text produced after the last tool call wins. If the run ended on a tool
@@ -287,6 +324,8 @@ struct RunContext {
     last_block: String,
     error_message: Option<String>,
     session_not_found: bool,
+    /// Tool call ids already shown, so each is printed once.
+    shown_tools: std::collections::HashSet<String>,
 }
 
 /// SIGINT / SIGTERM handling while an `opencode` child process is running.
@@ -372,6 +411,7 @@ mod tests {
                 directory: None,
                 prompt: "只回答 hello".to_string(),
                 ephemeral: false,
+                show_tool_calls: false,
             })
             .await
             .expect("first run");
@@ -386,6 +426,7 @@ mod tests {
                 directory: None,
                 prompt: "你刚才回答了什么？只回答那个单词".to_string(),
                 ephemeral: false,
+                show_tool_calls: false,
             })
             .await
             .expect("second run");

@@ -26,6 +26,7 @@ pub async fn execute(args: SqArgs) -> Result<()> {
         directory: None,
         prompt: build_prompt(question),
         ephemeral: true,
+        show_tool_calls: false,
     };
 
     runner.run(&options).await?;

@@ -52,6 +52,51 @@ pub fn print_line(text: &str) {
     let _ = stdout.flush();
 }
 
+/// Print a shell command executed by an agent, prefixed with `$`.
+///
+/// Written to stderr: it is activity information, so it stays visible even
+/// when stdout is redirected, and never pollutes the command's real output.
+/// Multi-line commands are printed with continuation lines indented so the
+/// whole command stays readable.
+pub fn print_command(command: &str) {
+    let command = command.trim_end();
+    if command.is_empty() {
+        return;
+    }
+
+    let mut stderr = io::stderr().lock();
+    for (index, line) in command.lines().enumerate() {
+        if index == 0 {
+            let _ = writeln!(stderr, "{} {}", "$".green().bold(), line.bright_white());
+        } else {
+            let _ = writeln!(stderr, "  {}", line.bright_white());
+        }
+    }
+    let _ = stderr.flush();
+}
+
+/// Print a non-shell tool call, dimmed, so file and search activity is visible.
+///
+/// `detail` is only printed when it adds information beyond the tool name.
+pub fn print_tool(name: &str, detail: Option<&str>) {
+    let mut stderr = io::stderr().lock();
+    match detail.map(str::trim) {
+        Some(detail) if !detail.is_empty() && detail != name => {
+            let _ = writeln!(
+                stderr,
+                "{} {} {}",
+                "·".bright_black(),
+                name.bright_black(),
+                detail.bright_black()
+            );
+        }
+        _ => {
+            let _ = writeln!(stderr, "{} {}", "·".bright_black(), name.bright_black());
+        }
+    }
+    let _ = stderr.flush();
+}
+
 /// Read a line from stdin and accept only `y` / `yes` (case-insensitive).
 pub fn confirm(prompt: &str) -> Result<bool> {
     let mut stdout = io::stdout().lock();

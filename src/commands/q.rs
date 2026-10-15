@@ -48,6 +48,7 @@ pub async fn execute(args: QArgs) -> Result<()> {
             directory: None,
             prompt: prompt.clone(),
             ephemeral: false,
+            show_tool_calls: false,
         };
 
         match runner.run(&options).await {

@@ -27,6 +27,7 @@ pub async fn execute(args: TransArgs) -> Result<()> {
         directory: None,
         prompt: build_prompt(text),
         ephemeral: true,
+        show_tool_calls: false,
     };
 
     runner.run(&options).await?;
